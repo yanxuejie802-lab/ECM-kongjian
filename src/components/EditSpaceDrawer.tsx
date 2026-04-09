@@ -19,6 +19,7 @@ export function EditSpaceDrawer({ isOpen, onClose, data }: EditSpaceDrawerProps)
     { id: 'before-rest', label: '休息日前一天', active: false, type: 'predefined', rule: '当天为工作日，后一天为休息日' },
   ]);
   const [editingRuleId, setEditingRuleId] = React.useState<string | null>(null);
+  const [calendarDate, setCalendarDate] = React.useState(new Date(2026, 3, 1)); // Default to April 2026
   const [isAddingCustom, setIsAddingCustom] = React.useState(false);
   const [newDayName, setNewDayName] = React.useState('');
 
@@ -42,17 +43,57 @@ export function EditSpaceDrawer({ isOpen, onClose, data }: EditSpaceDrawerProps)
     setIsAddingCustom(false);
   };
 
-  const toggleCustomDate = (dayId: string, date: string) => {
+  const toggleCustomDate = (dayId: string, dateStr: string) => {
     setTypicalDays(prev => prev.map(day => {
       if (day.id === dayId && day.type === 'custom') {
         const currentDates = Array.isArray(day.rule) ? day.rule : [];
-        const newDates = currentDates.includes(date)
-          ? currentDates.filter(d => d !== date)
-          : [...currentDates, date];
+        const newDates = currentDates.includes(dateStr)
+          ? currentDates.filter(d => d !== dateStr)
+          : [...currentDates, dateStr];
         return { ...day, rule: newDates };
       }
       return day;
     }));
+  };
+
+  const applyToYear = (dayId: string) => {
+    setTypicalDays(prev => prev.map(day => {
+      if (day.id === dayId && day.type === 'custom') {
+        const currentDates = Array.isArray(day.rule) ? day.rule : [];
+        // Get unique day numbers from currently selected dates in the current month
+        const currentMonthStr = `${calendarDate.getFullYear()}-${String(calendarDate.getMonth() + 1).padStart(2, '0')}`;
+        const selectedDayNumbers = currentDates
+          .filter(d => d.startsWith(currentMonthStr))
+          .map(d => d.split('-')[2]);
+
+        if (selectedDayNumbers.length === 0) return day;
+
+        const newDates = [...currentDates];
+        const year = calendarDate.getFullYear();
+        
+        for (let m = 0; m < 12; m++) {
+          const monthStr = String(m + 1).padStart(2, '0');
+          selectedDayNumbers.forEach(dayNum => {
+            const fullDate = `${year}-${monthStr}-${dayNum}`;
+            // Basic check for valid date (e.g. avoid Feb 30)
+            const d = new Date(year, m, parseInt(dayNum));
+            if (d.getMonth() === m && !newDates.includes(fullDate)) {
+              newDates.push(fullDate);
+            }
+          });
+        }
+        return { ...day, rule: newDates };
+      }
+      return day;
+    }));
+  };
+
+  const changeMonth = (offset: number) => {
+    setCalendarDate(prev => {
+      const next = new Date(prev);
+      next.setMonth(prev.getMonth() + offset);
+      return next;
+    });
   };
   const [holidayConfigs, setHolidayConfigs] = React.useState<Record<string, { type: string, days: { date: string, label: string, isRest: boolean, isAdjustment?: boolean }[] }>>({
     '元旦': { 
@@ -405,30 +446,77 @@ export function EditSpaceDrawer({ isOpen, onClose, data }: EditSpaceDrawerProps)
                                         {day.rule}
                                       </div>
                                     ) : (
-                                      <div className="space-y-2">
+                                      <div className="space-y-3">
                                         <div className="flex items-center justify-between mb-1">
-                                          <span>选择典型日期：</span>
-                                          <span className="text-blue-600">已选 {(day.rule as string[]).length} 天</span>
+                                          <div className="flex items-center gap-2">
+                                            <button 
+                                              onClick={() => changeMonth(-1)}
+                                              className="p-1 hover:bg-gray-200 rounded transition-colors"
+                                            >
+                                              <ChevronRight className="w-3 h-3 rotate-180" />
+                                            </button>
+                                            <span className="font-medium text-gray-700">
+                                              {calendarDate.getFullYear()}年{calendarDate.getMonth() + 1}月
+                                            </span>
+                                            <button 
+                                              onClick={() => changeMonth(1)}
+                                              className="p-1 hover:bg-gray-200 rounded transition-colors"
+                                            >
+                                              <ChevronRight className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                          <button 
+                                            onClick={() => applyToYear(day.id)}
+                                            className="text-blue-600 hover:underline font-medium"
+                                          >
+                                            应用于全年
+                                          </button>
                                         </div>
+                                        
+                                        <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                                          {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                            <span key={d} className="text-[8px] text-gray-400">{d}</span>
+                                          ))}
+                                        </div>
+
                                         <div className="grid grid-cols-7 gap-1">
-                                          {Array.from({ length: 31 }).map((_, i) => {
-                                            const dateStr = `${i + 1}`;
-                                            const isSelected = (day.rule as string[]).includes(dateStr);
-                                            return (
-                                              <button
-                                                key={i}
-                                                onClick={() => toggleCustomDate(day.id, dateStr)}
-                                                className={cn(
-                                                  "w-6 h-6 flex items-center justify-center rounded transition-all",
-                                                  isSelected 
-                                                    ? "bg-blue-600 text-white shadow-sm" 
-                                                    : "bg-white border border-gray-100 text-gray-400 hover:border-blue-300"
-                                                )}
-                                              >
-                                                {i + 1}
-                                              </button>
-                                            );
-                                          })}
+                                          {(() => {
+                                            const year = calendarDate.getFullYear();
+                                            const month = calendarDate.getMonth();
+                                            const firstDay = new Date(year, month, 1).getDay();
+                                            const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                            
+                                            const cells = [];
+                                            // Empty cells for previous month
+                                            for (let i = 0; i < firstDay; i++) {
+                                              cells.push(<div key={`empty-${i}`} />);
+                                            }
+                                            
+                                            // Day cells
+                                            for (let i = 1; i <= daysInMonth; i++) {
+                                              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                                              const isSelected = (day.rule as string[]).includes(dateStr);
+                                              cells.push(
+                                                <button
+                                                  key={i}
+                                                  onClick={() => toggleCustomDate(day.id, dateStr)}
+                                                  className={cn(
+                                                    "w-6 h-6 flex items-center justify-center rounded transition-all text-[9px]",
+                                                    isSelected 
+                                                      ? "bg-blue-600 text-white shadow-sm" 
+                                                      : "bg-white border border-gray-100 text-gray-400 hover:border-blue-300"
+                                                  )}
+                                                >
+                                                  {i}
+                                                </button>
+                                              );
+                                            }
+                                            return cells;
+                                          })()}
+                                        </div>
+                                        <div className="flex items-center justify-between text-[9px] text-gray-400 pt-1 border-t border-gray-100">
+                                          <span>已选总天数:</span>
+                                          <span className="text-blue-600 font-medium">{(day.rule as string[]).length} 天</span>
                                         </div>
                                       </div>
                                     )}
